@@ -276,27 +276,35 @@ class SnowflakeMaterializationEngine(BatchMaterializationEngine):
                     fv_latest_values_sql, feature_view.batch_source.field_mapping
                 )
 
-            fv_to_proto_sql = self.generate_snowflake_materialization_query(
-                self.repo_config,
-                fv_latest_mapped_values_sql,
-                feature_view,
-                project,
-            )
+            features_full_list = feature_view.features
+            feature_batches = [
+                features_full_list[i : i + 100]
+                for i in range(0, len(features_full_list), 100)
+            ]
+            for feature_batch in feature_batches:
 
-            if self.repo_config.online_store.type == "snowflake.online":
-                self.materialize_to_snowflake_online_store(
+                fv_to_proto_sql = self.generate_snowflake_materialization_query(
                     self.repo_config,
-                    fv_to_proto_sql,
+                    fv_latest_mapped_values_sql,
                     feature_view,
+                    feature_batch,
                     project,
                 )
-            else:
-                self.materialize_to_external_online_store(
-                    self.repo_config,
-                    fv_to_proto_sql,
-                    feature_view,
-                    tqdm_builder,
-                )
+
+                if self.repo_config.online_store.type == "snowflake.online":
+                    self.materialize_to_snowflake_online_store(
+                        self.repo_config,
+                        fv_to_proto_sql,
+                        feature_view,
+                        project,
+                    )
+                else:
+                    self.materialize_to_external_online_store(
+                        self.repo_config,
+                        fv_to_proto_sql,
+                        feature_view,
+                        tqdm_builder,
+                    )
 
             return SnowflakeMaterializationJob(
                 job_id=job_id, status=MaterializationJobStatus.SUCCEEDED
@@ -311,6 +319,7 @@ class SnowflakeMaterializationEngine(BatchMaterializationEngine):
         repo_config: RepoConfig,
         fv_latest_mapped_values_sql: str,
         feature_view: Union[BatchFeatureView, FeatureView],
+        feature_batch: list,
         project: str,
     ) -> str:
 
@@ -333,7 +342,7 @@ class SnowflakeMaterializationEngine(BatchMaterializationEngine):
         UDF serialization function.
         """
         feature_sql_list = []
-        for feature in feature_view.features:
+        for feature in feature_batch:
             feature_value_type_name = feature.dtype.to_value_type().name
 
             feature_sql = _convert_value_name_to_snowflake_udf(
