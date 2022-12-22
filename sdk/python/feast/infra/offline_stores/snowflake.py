@@ -74,13 +74,13 @@ class SnowflakeOfflineStoreConfig(FeastConfigBaseModel):
     """Offline store config for Snowflake"""
 
     type: Literal["snowflake.offline"] = "snowflake.offline"
-    """ Offline store type selector"""
+    """ Offline store type selector """
 
     config_path: Optional[str] = os.path.expanduser("~/.snowsql/config")
     """ Snowflake config path -- absolute path required (Cant use ~)"""
 
     account: Optional[str] = None
-    """ Snowflake deployment identifier -- drop .snowflakecomputing.com"""
+    """ Snowflake deployment identifier -- drop .snowflakecomputing.com """
 
     user: Optional[str] = None
     """ Snowflake user name """
@@ -89,7 +89,7 @@ class SnowflakeOfflineStoreConfig(FeastConfigBaseModel):
     """ Snowflake password """
 
     role: Optional[str] = None
-    """ Snowflake role name"""
+    """ Snowflake role name """
 
     warehouse: Optional[str] = None
     """ Snowflake warehouse name """
@@ -412,25 +412,21 @@ class SnowflakeRetrievalJob(RetrievalJob):
 
     def _to_df_internal(self) -> pd.DataFrame:
         with self._query_generator() as query:
-
-            df = execute_snowflake_statement(
-                self.snowflake_conn, query
-            ).fetch_pandas_all()
+            with self.snowflake_conn.cursor() as cur:
+                df = execute_snowflake_statement(cur, query).fetch_pandas_all()
 
         return df
 
     def _to_arrow_internal(self) -> pyarrow.Table:
         with self._query_generator() as query:
-
-            pa_table = execute_snowflake_statement(
-                self.snowflake_conn, query
-            ).fetch_arrow_all()
+            with self.snowflake_conn.cursor() as cur:
+                pa_table = execute_snowflake_statement(cur, query).fetch_arrow_all()
 
             if pa_table:
-
                 return pa_table
             else:
-                empty_result = execute_snowflake_statement(self.snowflake_conn, query)
+                with self.snowflake_conn.cursor() as cur:
+                    empty_result = execute_snowflake_statement(cur, query)
 
                 return pyarrow.Table.from_pandas(
                     pd.DataFrame(columns=[md.name for md in empty_result.description])
@@ -448,9 +444,9 @@ class SnowflakeRetrievalJob(RetrievalJob):
             return None
 
         with self._query_generator() as query:
-            query = f'CREATE {"TEMPORARY" if temporary else ""} TABLE IF NOT EXISTS "{table_name}" AS ({query});\n'
-
-            execute_snowflake_statement(self.snowflake_conn, query)
+            with self.snowflake_conn.cursor() as cur:
+                query = f'CREATE {"TEMPORARY" if temporary else ""} TABLE IF NOT EXISTS "{table_name}" AS ({query});\n'
+                execute_snowflake_statement(cur, query)
 
     def to_sql(self) -> str:
         """
@@ -479,10 +475,10 @@ class SnowflakeRetrievalJob(RetrievalJob):
 
         if isinstance(spark_session, SparkSession):
             with self._query_generator() as query:
-
-                arrow_batches = execute_snowflake_statement(
-                    self.snowflake_conn, query
-                ).fetch_arrow_batches()
+                with self.snowflake_conn.cursor() as cur:
+                    arrow_batches = execute_snowflake_statement(
+                        cur, query
+                    ).fetch_arrow_batches()
 
                 if arrow_batches:
                     spark_df = reduce(
@@ -528,22 +524,26 @@ class SnowflakeRetrievalJob(RetrievalJob):
         table = f"temporary_{uuid.uuid4().hex}"
         self.to_snowflake(table)
 
-        query = f"""
-            COPY INTO '{self.config.offline_store.blob_export_location}/{table}' FROM "{self.config.offline_store.database}"."{self.config.offline_store.schema_}"."{table}"\n
-              STORAGE_INTEGRATION = {self.config.offline_store.storage_integration_name}\n
-              FILE_FORMAT = (TYPE = PARQUET)
-              DETAILED_OUTPUT = TRUE
-              HEADER = TRUE
-        """
-        cursor = execute_snowflake_statement(self.snowflake_conn, query)
+        with self.snowflake_conn.cursor() as cur:
+            query = f"""
+                COPY INTO '{self.config.offline_store.blob_export_location}/{table}' FROM "{self.config.offline_store.database}"."{self.config.offline_store.schema_}"."{table}"\n
+                  STORAGE_INTEGRATION = {self.config.offline_store.storage_integration_name}\n
+                  FILE_FORMAT = (TYPE = PARQUET)
+                  DETAILED_OUTPUT = TRUE
+                  HEADER = TRUE
+            """
+            cursor = execute_snowflake_statement(cur, query)
 
-        file_name_column_index = [
-            idx for idx, rm in enumerate(cursor.description) if rm.name == "FILE_NAME"
-        ][0]
-        return [
-            f"{self.export_path}/{row[file_name_column_index]}"
-            for row in cursor.fetchall()
-        ]
+            file_name_column_index = [
+                idx
+                for idx, rm in enumerate(cursor.description)
+                if rm.name == "FILE_NAME"
+            ][0]
+
+            return [
+                f"{self.export_path}/{row[file_name_column_index]}"
+                for row in cursor.fetchall()
+            ]
 
 
 def _get_entity_schema(
@@ -557,11 +557,11 @@ def _get_entity_schema(
         return dict(zip(entity_df.columns, entity_df.dtypes))
 
     else:
-
-        query = f"SELECT * FROM ({entity_df}) LIMIT 1"
-        limited_entity_df = execute_snowflake_statement(
-            snowflake_conn, query
-        ).fetch_pandas_all()
+        with snowflake_conn.cursor() as cur:
+            query = f"SELECT * FROM ({entity_df}) LIMIT 1"
+            limited_entity_df = execute_snowflake_statement(
+                cur, query
+            ).fetch_pandas_all()
 
         return dict(zip(limited_entity_df.columns, limited_entity_df.dtypes))
 
@@ -587,8 +587,9 @@ def _upload_entity_df(
         return None
     elif isinstance(entity_df, str):
         # If the entity_df is a string (SQL query), create a Snowflake table out of it,
-        query = f'CREATE TEMPORARY TABLE "{table_name}" AS ({entity_df})'
-        execute_snowflake_statement(snowflake_conn, query)
+        with snowflake_conn.cursor() as cur:
+            query = f'CREATE TEMPORARY TABLE "{table_name}" AS ({entity_df})'
+            execute_snowflake_statement(cur, query)
 
         return None
     else:
@@ -624,8 +625,9 @@ def _get_entity_df_event_timestamp_range(
     elif isinstance(entity_df, str):
         # If the entity_df is a string (SQL query), determine range
         # from table
-        query = f'SELECT MIN("{entity_df_event_timestamp_col}") AS "min_value", MAX("{entity_df_event_timestamp_col}") AS "max_value" FROM ({entity_df})'
-        results = execute_snowflake_statement(snowflake_conn, query).fetchall()
+        with snowflake_conn.cursor() as cur:
+            query = f'SELECT MIN("{entity_df_event_timestamp_col}") AS "min_value", MAX("{entity_df_event_timestamp_col}") AS "max_value" FROM ({entity_df})'
+            results = execute_snowflake_statement(cur, query).fetchall()
 
         entity_df_event_timestamp_range = cast(Tuple[datetime, datetime], results[0])
         if (

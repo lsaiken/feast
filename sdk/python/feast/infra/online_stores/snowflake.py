@@ -29,13 +29,13 @@ class SnowflakeOnlineStoreConfig(FeastConfigBaseModel):
     """Online store config for Snowflake"""
 
     type: Literal["snowflake.online"] = "snowflake.online"
-    """ Online store type selector"""
+    """ Online store type selector """
 
     config_path: Optional[str] = os.path.expanduser("~/.snowsql/config")
     """ Snowflake config path -- absolute path required (Can't use ~)"""
 
     account: Optional[str] = None
-    """ Snowflake deployment identifier -- drop .snowflakecomputing.com"""
+    """ Snowflake deployment identifier -- drop .snowflakecomputing.com """
 
     user: Optional[str] = None
     """ Snowflake user name """
@@ -44,7 +44,7 @@ class SnowflakeOnlineStoreConfig(FeastConfigBaseModel):
     """ Snowflake password """
 
     role: Optional[str] = None
-    """ Snowflake role name"""
+    """ Snowflake role name """
 
     warehouse: Optional[str] = None
     """ Snowflake warehouse name """
@@ -141,7 +141,7 @@ class SnowflakeOnlineStore(OnlineStore):
                         WHERE
                             "_feast_row" = 1;
                 """
-                execute_snowflake_statement(conn, query)
+                execute_snowflake_statement(conn.cursor(), query)
 
             if progress:
                 progress(len(data))
@@ -178,7 +178,7 @@ class SnowflakeOnlineStore(OnlineStore):
         )
 
         online_path = get_snowflake_online_store_path(config, table)
-        with get_snowflake_conn(config.online_store) as conn:
+        with get_snowflake_conn(config.online_store).cursor() as cur:
             query = f"""
                 SELECT
                     "entity_key", "feature_name", "value", "event_ts"
@@ -187,7 +187,7 @@ class SnowflakeOnlineStore(OnlineStore):
                 WHERE
                     "entity_feature_key" IN ({entity_fetch_str})
             """
-            df = execute_snowflake_statement(conn, query).fetch_pandas_all()
+            df = execute_snowflake_statement(cur, query).fetch_pandas_all()
 
         for entity_key in entity_keys:
             entity_key_bin = serialize_entity_key(
@@ -220,7 +220,7 @@ class SnowflakeOnlineStore(OnlineStore):
     ):
         assert isinstance(config.online_store, SnowflakeOnlineStoreConfig)
 
-        with get_snowflake_conn(config.online_store) as conn:
+        with get_snowflake_conn(config.online_store).cursor() as cur:
             for table in tables_to_keep:
                 online_path = get_snowflake_online_store_path(config, table)
                 query = f"""
@@ -233,12 +233,12 @@ class SnowflakeOnlineStore(OnlineStore):
                         "created_ts" TIMESTAMP
                     )
                 """
-                execute_snowflake_statement(conn, query)
+                execute_snowflake_statement(cur, query)
 
             for table in tables_to_delete:
                 online_path = get_snowflake_online_store_path(config, table)
                 query = f'DROP TABLE IF EXISTS {online_path}."[online-transient] {config.project}_{table.name}"'
-                execute_snowflake_statement(conn, query)
+                execute_snowflake_statement(cur, query)
 
     def teardown(
         self,
@@ -248,8 +248,8 @@ class SnowflakeOnlineStore(OnlineStore):
     ):
         assert isinstance(config.online_store, SnowflakeOnlineStoreConfig)
 
-        with get_snowflake_conn(config.online_store) as conn:
+        with get_snowflake_conn(config.online_store).cursor() as cur:
             for table in tables:
                 online_path = get_snowflake_online_store_path(config, table)
                 query = f'DROP TABLE IF EXISTS {online_path}."[online-transient] {config.project}_{table.name}"'
-                execute_snowflake_statement(conn, query)
+                execute_snowflake_statement(cur, query)

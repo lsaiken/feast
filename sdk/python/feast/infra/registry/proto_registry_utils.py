@@ -189,13 +189,25 @@ def list_data_sources(registry_proto: RegistryProto, project: str) -> List[DataS
 
 
 def list_saved_datasets(
-    registry_proto: RegistryProto, project: str, allow_cache: bool = False
+    registry_proto: RegistryProto, project: str
 ) -> List[SavedDataset]:
-    return [
-        SavedDataset.from_proto(saved_dataset)
-        for saved_dataset in registry_proto.saved_datasets
-        if saved_dataset.spec.project == project
-    ]
+    saved_datasets = []
+    for saved_dataset in registry_proto.saved_datasets:
+        if saved_dataset.project == project:
+            saved_datasets.append(SavedDataset.from_proto(saved_dataset))
+    return saved_datasets
+
+
+def list_validation_reference(
+    registry_proto: RegistryProto, name: str, project: str
+) -> List[ValidationReference]:
+    validation_references = []
+    for validation_reference in registry_proto.validation_references:
+        if validation_reference.project == project:
+            validation_references.append(
+                ValidationReference.from_proto(validation_reference)
+            )
+    return validation_references
 
 
 def list_project_metadata(

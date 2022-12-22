@@ -219,9 +219,9 @@ class SnowflakeSource(DataSource):
 
         assert isinstance(config.offline_store, SnowflakeOfflineStoreConfig)
 
-        with get_snowflake_conn(config.offline_store) as conn:
+        with get_snowflake_conn(config.offline_store).cursor() as cur:
             query = f"SELECT * FROM {self.get_table_query_string()} LIMIT 5"
-            cursor = execute_snowflake_statement(conn, query)
+            cursor = execute_snowflake_statement(cur, query)
 
             metadata = [
                 {
@@ -250,10 +250,10 @@ class SnowflakeSource(DataSource):
                     else:
                         column = row["column_name"]
 
-                        with get_snowflake_conn(config.offline_store) as conn:
+                        with get_snowflake_conn(config.offline_store).cursor() as cur:
                             query = f'SELECT MAX("{column}") AS "{column}" FROM {self.get_table_query_string()}'
                             result = execute_snowflake_statement(
-                                conn, query
+                                cur, query
                             ).fetch_pandas_all()
                         if (
                             result.dtypes[column].name
