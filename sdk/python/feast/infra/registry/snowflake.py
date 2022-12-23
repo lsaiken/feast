@@ -145,7 +145,7 @@ class SnowflakeRegistry(BaseRegistry):
             else 0
         )
 
-    def refresh(self, project: Optional[str]):
+    def refresh(self):
         self.cached_registry_proto = self.proto()
         self.cached_registry_proto_created = datetime.utcnow()
 
