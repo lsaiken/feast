@@ -209,9 +209,6 @@ message DataSource {
 
     // Snowflake schema name
     string database = 4;
-
-    // Snowflake warehouse name
-    string warehouse = 5;
   }
 
   // Defines options for DataSource that sources features from a spark table/query
